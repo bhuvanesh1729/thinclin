@@ -113,6 +113,14 @@ for dm in lightdm gdm3 xdm; do
     fi
 done
 
+# Stop all display managers
+echo "Stopping display managers..."
+systemctl stop lightdm gdm3 xdm 2>/dev/null || true
+
+# Remove any existing display manager configuration
+echo "Cleaning up display manager configuration..."
+rm -f /etc/X11/default-display-manager
+
 # Configure LightDM
 if [ -f /etc/init.d/lightdm ]; then
     echo "Configuring LightDM..."
@@ -120,31 +128,69 @@ if [ -f /etc/init.d/lightdm ]; then
     # Create LightDM configuration directory if it doesn't exist
     mkdir -p /etc/lightdm/lightdm.conf.d
 
-    # Configure LightDM for local display
+    # Configure LightDM with strict display settings
     cat > /etc/lightdm/lightdm.conf.d/70-thinclin.conf << EOL
 [LightDM]
 minimum-display-number=0
 maximum-display-number=0
 user-session=xfce
 allow-guest=false
+greeter-session=lightdm-gtk-greeter
+xserver-command=X -ac :0 -nolisten tcp
 display-setup-script=/usr/local/bin/lightdm-display-setup
+[Seat:*]
+xserver-layout=default
+xserver-config=xorg.conf.lightdm
+type=xlocal
 EOL
 
     # Create display setup script for LightDM
     cat > /usr/local/bin/lightdm-display-setup << EOL
 #!/bin/bash
-# Set up X server for LightDM
-X -ac :0 &
+# Set up X server for LightDM with specific configuration
+X -ac :0 -nolisten tcp -config /etc/X11/xorg.conf.lightdm &
 sleep 2
 EOL
     chmod +x /usr/local/bin/lightdm-display-setup
+
+    # Create specific X configuration for LightDM
+    cat > /etc/X11/xorg.conf.lightdm << EOL
+Section "ServerLayout"
+    Identifier     "LightDM Layout"
+    Screen      0  "Screen0" 0 0
+EndSection
+
+Section "Monitor"
+    Identifier   "Monitor0"
+    Option      "DPMS" "true"
+EndSection
+
+Section "Device"
+    Identifier  "Card0"
+    Driver      "fbdev"
+EndSection
+
+Section "Screen"
+    Identifier "Screen0"
+    Device     "Card0"
+    Monitor    "Monitor0"
+EndSection
+
+Section "ServerFlags"
+    Option "DontVTSwitch" "true"
+    Option "AllowMouseOpenFail" "true"
+    Option "PciForceNone" "true"
+    Option "AutoAddDevices" "false"
+EndSection
+EOL
 fi
 
-# Configure XRDP
+# Configure XRDP with strict display settings
 echo "Configuring XRDP..."
 
-# Create XRDP configuration directory
+# Create XRDP configuration directories
 mkdir -p /etc/xrdp/conf.d
+mkdir -p /etc/X11/xrdp
 
 # Configure XRDP main settings
 cat > /etc/xrdp/xrdp.ini << EOL
@@ -162,6 +208,9 @@ allow_channels=true
 max_idle_time=0
 channel_code=1
 xorg_path=/usr/lib/xorg
+autorun=/etc/xrdp/startwm.sh
+display_num=10
+required_keylayout=us
 
 [Xorg]
 name=Xorg
@@ -171,78 +220,99 @@ password=ask
 ip=127.0.0.1
 port=-1
 code=20
+chansrvport=DISPLAY(10)
+xserverbpp=24
 EOL
 
-# Configure Xorg for XRDP
+# Configure Xorg specifically for XRDP
 cat > /etc/X11/xrdp/xorg.conf << EOL
 Section "ServerLayout"
-    Identifier     "Layout0"
-    Screen         "Screen0"
+    Identifier     "XRDP Layout"
+    Screen      0  "XRDP Screen" 0 0
+    InputDevice    "XRDP Mouse" "CorePointer"
+    InputDevice    "XRDP Keyboard" "CoreKeyboard"
+    Option         "Xinerama" "off"
 EndSection
 
-Section "Screen"
-    Identifier     "Screen0"
-    Device         "Card0"
+Section "InputDevice"
+    Identifier  "XRDP Keyboard"
+    Driver      "kbd"
+    Option      "XkbLayout" "us"
+    Option      "XkbModel" "pc105"
+EndSection
+
+Section "InputDevice"
+    Identifier  "XRDP Mouse"
+    Driver      "mouse"
+    Option      "CorePointer" "true"
+EndSection
+
+Section "Monitor"
+    Identifier  "XRDP Monitor"
+    Option      "DPMS" "true"
 EndSection
 
 Section "Device"
-    Identifier     "Card0"
-    Driver         "dummy"
+    Identifier  "XRDP Card"
+    Driver      "dummy"
+    Option      "ConstantDPI" "true"
+    VideoRam    256000
+EndSection
+
+Section "Screen"
+    Identifier "XRDP Screen"
+    Device     "XRDP Card"
+    Monitor    "XRDP Monitor"
+    DefaultDepth     24
+    
+    SubSection "Display"
+        Depth     24
+        Modes     "1920x1080" "1600x900" "1280x1024"
+        Virtual   1920 1080
+    EndSubSection
+EndSection
+
+Section "ServerFlags"
+    Option "DontVTSwitch" "true"
+    Option "DisableVTSwitch" "true"
+    Option "AutoAddDevices" "false"
+    Option "DontZoom" "true"
+    Option "DontZap" "true"
+EndSection
+
+Section "Extensions"
+    Option "COMPOSITE" "Disable"
 EndSection
 EOL
 
-# Create XRDP session startup script
-cat > /usr/local/bin/start-xrdp-session << EOL
+# Create XRDP session startup script with fixed display
+cat > /etc/xrdp/startwm.sh << EOL
 #!/bin/bash
-# Start XRDP session with specific display
+# Start XRDP session with fixed display
 export DISPLAY=:10
 export XAUTHORITY=\$HOME/.Xauthority
 
-# Create new X authority file
+# Ensure clean X authority
+rm -f \$XAUTHORITY
+touch \$XAUTHORITY
 xauth generate :10 . trusted
 
-# Start XFCE session with automatic display selection
-exec dbus-launch --exit-with-session xfce4-session
-EOL
-chmod +x /usr/local/bin/start-xrdp-session
+# Set up session environment
+export XDG_SESSION_TYPE=x11
+export DESKTOP_SESSION=xfce
+export GDMSESSION=xfce
+export XDG_CURRENT_DESKTOP=XFCE
+export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
+export XDG_DATA_DIRS=/usr/share/xfce4:/usr/share/xfce:/usr/local/share:/usr/share
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LANG=en_US.UTF-8
 
-# Create expect script to handle display selection prompts
-cat > /usr/local/bin/auto-select-display << EOL
-#!/usr/bin/expect -f
-# Automatically select first display option if prompted
-set timeout 10
-spawn \$argv
-expect {
-    "Choose the first display" {
-        send "1\r"
-        exp_continue
-    }
-    "Select display:" {
-        send "1\r"
-        exp_continue
-    }
-    "Choose display:" {
-        send "1\r"
-        exp_continue
-    }
-    "Display number:" {
-        send "1\r"
-        exp_continue
-    }
-    timeout {
-        # Continue if no prompt appears
-    }
-}
-interact
-EOL
-chmod +x /usr/local/bin/auto-select-display
-
-# Modify XRDP session to use expect script
-cat > /etc/xrdp/startwm.sh << EOL
-#!/bin/bash
-/usr/local/bin/auto-select-display /usr/local/bin/start-xrdp-session
+# Start XFCE session
+exec dbus-launch --exit-with-session startxfce4
 EOL
 chmod +x /etc/xrdp/startwm.sh
+
+# Create X server lock directory with proper permissions
 
 # Create display lock directory
 mkdir -p /tmp/.X11-unix
