@@ -26,6 +26,11 @@ fi
 echo "Updating package lists..."
 apt-get update
 
+# Install Node.js and npm from NodeSource
+echo "Installing Node.js and npm..."
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+apt-get install -y nodejs
+
 # Install required dependencies
 echo "Installing dependencies..."
 apt-get install -y \
@@ -34,12 +39,16 @@ apt-get install -y \
     xfce4-goodies \
     tightvncserver \
     net-tools \
-    npm \
     curl
-    
+
+# Verify Node.js and npm installation
+echo "Verifying Node.js installation..."
+node --version
+npm --version
+
 # Install LocalTunnel globally
 echo "Installing LocalTunnel..."
-npm install -g localtunnel
+npm install -g localtunnel --no-audit
 
 # Configure XRDP to use custom port and XFCE
 echo "Configuring XRDP..."
