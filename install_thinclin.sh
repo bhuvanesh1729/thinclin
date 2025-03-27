@@ -26,29 +26,78 @@ fi
 echo "Updating package lists..."
 apt-get update
 
-# Install Node.js and npm from NodeSource
+# Install Node.js and npm
 echo "Installing Node.js and npm..."
 curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
 apt-get install -y nodejs
 
-# Install required dependencies
-echo "Installing dependencies..."
+# Install required system dependencies
+echo "Installing system dependencies..."
 apt-get install -y \
     xrdp \
     xfce4 \
     xfce4-goodies \
     tightvncserver \
     net-tools \
-    curl
+    curl \
+    build-essential \
+    python3
 
-# Verify Node.js and npm installation
+# Verify Node.js installation
 echo "Verifying Node.js installation..."
-node --version
-npm --version
+if ! command -v node &> /dev/null; then
+    echo "Node.js installation failed. Trying alternative method..."
+    # Alternative Node.js installation using n
+    curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n
+    bash n lts
+    # Add to PATH
+    export PATH="$PATH:/usr/local/bin/node"
+fi
+
+# Verify and fix npm installation
+echo "Verifying npm installation..."
+if ! command -v npm &> /dev/null; then
+    echo "npm not found. Installing npm..."
+    curl -L https://www.npmjs.com/install.sh | sh
+fi
+
+# Install required npm dependencies
+echo "Installing npm dependencies..."
+npm install -g \
+    node-agent-base \
+    node-archy \
+    node-cacache \
+    node-chalk \
+    node-cli-table3 \
+    node-columnify \
+    node-cssesc \
+    node-debug \
+    node-emoji-regex \
+    node-gyp \
+    node-http-proxy-agent \
+    node-https-proxy-agent \
+    node-mkdirp \
+    node-ms \
+    node-nopt \
+    node-normalize-package-data \
+    node-npm-bundled \
+    node-npm-normalize-package-bin \
+    node-npm-package-arg \
+    node-npmlog \
+    node-postcss-selector-parser \
+    node-read-package-json \
+    node-rimraf \
+    node-semver \
+    node-string-width \
+    node-strip-ansi \
+    node-tar \
+    node-validate-npm-package-name \
+    node-which
 
 # Install LocalTunnel globally
 echo "Installing LocalTunnel..."
-npm install -g localtunnel --no-audit
+npm cache clean -f
+npm install -g localtunnel --no-audit --force
 
 # Configure XRDP to use custom port and XFCE
 echo "Configuring XRDP..."
