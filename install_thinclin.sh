@@ -100,26 +100,30 @@ echo "Installing LocalTunnel..."
 npm cache clean -f
 npm install -g localtunnel --no-audit --force
 
-# Configure display managers for coexistence
-echo "Configuring display managers..."
-
-# Disable display manager check in all init scripts
-echo "Disabling display manager checks..."
-for dm in lightdm gdm3 xdm; do
-    if [ -f "/etc/init.d/$dm" ]; then
-        echo "Modifying $dm init script..."
-        cp "/etc/init.d/$dm" "/etc/init.d/$dm.backup"
-        sed -i 's/\[ -x "$DEFAULT_DISPLAY_MANAGER_FILE" \]/false/g' "/etc/init.d/$dm"
-    fi
-done
+# Handle display manager conflicts
+echo "Handling display manager conflicts..."
 
 # Stop all display managers
 echo "Stopping display managers..."
-systemctl stop lightdm gdm3 xdm 2>/dev/null || true
+systemctl stop lightdm gdm3 xdm sddm lxdm 2>/dev/null || true
 
-# Remove any existing display manager configuration
-echo "Cleaning up display manager configuration..."
-rm -f /etc/X11/default-display-manager
+# Remove conflicting display managers
+echo "Removing conflicting display managers..."
+apt-get remove -y --purge gdm3 xdm sddm lxdm 2>/dev/null || true
+apt-get autoremove -y
+
+# Install LightDM if not present
+echo "Ensuring LightDM is installed..."
+apt-get install -y lightdm lightdm-gtk-greeter
+
+# Set LightDM as the only display manager
+echo "Setting LightDM as default display manager..."
+echo "/usr/sbin/lightdm" > /etc/X11/default-display-manager
+update-alternatives --set x-session-manager /usr/bin/startxfce4 2>/dev/null || true
+
+# Clean up any conflicting configuration
+echo "Cleaning up conflicting configuration..."
+rm -rf /etc/X11/xdm /etc/gdm3 /etc/sddm.conf /etc/lxdm 2>/dev/null || true
 
 # Configure LightDM
 if [ -f /etc/init.d/lightdm ]; then
