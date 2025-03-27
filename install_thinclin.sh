@@ -102,29 +102,50 @@ npm install -g localtunnel --no-audit --force
 # Configure display managers for coexistence
 echo "Configuring display managers..."
 
+# Disable display manager check in all init scripts
+echo "Disabling display manager checks..."
+for dm in lightdm gdm3 xdm; do
+    if [ -f "/etc/init.d/$dm" ]; then
+        echo "Modifying $dm init script..."
+        cp "/etc/init.d/$dm" "/etc/init.d/$dm.backup"
+        sed -i 's/\[ -x "$DEFAULT_DISPLAY_MANAGER_FILE" \]/false/g' "/etc/init.d/$dm"
+    fi
+done
+
 # Configure LightDM
 if [ -f /etc/init.d/lightdm ]; then
     echo "Configuring LightDM..."
-    # Backup original init script
-    cp /etc/init.d/lightdm /etc/init.d/lightdm.backup
     
-    # Modify LightDM init script to disable default display manager check
-    sed -i '/^PIDFILE/a DISPLAY=:0' /etc/init.d/lightdm
-    sed -i 's/start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON/start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- -d $DISPLAY/' /etc/init.d/lightdm
-    
-    # Configure LightDM to use specific display
+    # Create LightDM configuration directory if it doesn't exist
+    mkdir -p /etc/lightdm/lightdm.conf.d
+
+    # Configure LightDM for local display
     cat > /etc/lightdm/lightdm.conf.d/70-thinclin.conf << EOL
 [LightDM]
 minimum-display-number=0
 maximum-display-number=0
+user-session=xfce
+allow-guest=false
+display-setup-script=/usr/local/bin/lightdm-display-setup
 EOL
+
+    # Create display setup script for LightDM
+    cat > /usr/local/bin/lightdm-display-setup << EOL
+#!/bin/bash
+# Set up X server for LightDM
+X -ac :0 &
+sleep 2
+EOL
+    chmod +x /usr/local/bin/lightdm-display-setup
 fi
 
 # Configure XRDP
 echo "Configuring XRDP..."
-echo xfce4-session > ~/.xsession
 
-# Configure XRDP to use port 1431 and specific display
+# Create XRDP configuration directory
+mkdir -p /etc/xrdp/conf.d
+
+# Configure XRDP main settings
 cat > /etc/xrdp/xrdp.ini << EOL
 [Globals]
 ini_version=1
@@ -139,32 +160,68 @@ crypt_level=high
 allow_channels=true
 max_idle_time=0
 channel_code=1
+xorg_path=/usr/lib/xorg
 
-[Xvnc]
-name=Xvnc
-lib=libvnc.so
+[Xorg]
+name=Xorg
+lib=libxup.so
 username=ask
 password=ask
 ip=127.0.0.1
 port=-1
-xserverbpp=24
+code=20
 EOL
 
-# Create custom xrdp startup script
+# Configure Xorg for XRDP
+cat > /etc/X11/xrdp/xorg.conf << EOL
+Section "ServerLayout"
+    Identifier     "Layout0"
+    Screen         "Screen0"
+EndSection
+
+Section "Screen"
+    Identifier     "Screen0"
+    Device         "Card0"
+EndSection
+
+Section "Device"
+    Identifier     "Card0"
+    Driver         "dummy"
+EndSection
+EOL
+
+# Create XRDP session startup script
 cat > /usr/local/bin/start-xrdp-session << EOL
 #!/bin/bash
 # Start XRDP session with specific display
-export DISPLAY=:1
-exec xfce4-session
+export DISPLAY=:10
+export XAUTHORITY=\$HOME/.Xauthority
+
+# Create new X authority file
+xauth generate :10 . trusted
+
+# Start XFCE session
+exec dbus-launch --exit-with-session xfce4-session
 EOL
 chmod +x /usr/local/bin/start-xrdp-session
 
-# Update XRDP session script
-echo "/usr/local/bin/start-xrdp-session" > ~/.xsession
+# Configure XRDP session
+echo "/usr/local/bin/start-xrdp-session" > /etc/xrdp/startwm.sh
+chmod +x /etc/xrdp/startwm.sh
+
+# Create display lock directory
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
 
 # Restart XRDP service
 echo "Restarting XRDP service..."
 systemctl restart xrdp
+
+# Ensure XRDP starts after LightDM
+if [ -f /etc/init.d/lightdm ]; then
+    systemctl add-wants graphical.target xrdp.service
+    systemctl set-property xrdp.service After=lightdm.service
+fi
 
 # Configure firewall
 echo "Configuring firewall..."
