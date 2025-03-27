@@ -41,7 +41,8 @@ apt-get install -y \
     net-tools \
     curl \
     build-essential \
-    python3
+    python3 \
+    expect
 
 # Verify Node.js installation
 echo "Verifying Node.js installation..."
@@ -200,13 +201,47 @@ export XAUTHORITY=\$HOME/.Xauthority
 # Create new X authority file
 xauth generate :10 . trusted
 
-# Start XFCE session
+# Start XFCE session with automatic display selection
 exec dbus-launch --exit-with-session xfce4-session
 EOL
 chmod +x /usr/local/bin/start-xrdp-session
 
-# Configure XRDP session
-echo "/usr/local/bin/start-xrdp-session" > /etc/xrdp/startwm.sh
+# Create expect script to handle display selection prompts
+cat > /usr/local/bin/auto-select-display << EOL
+#!/usr/bin/expect -f
+# Automatically select first display option if prompted
+set timeout 10
+spawn \$argv
+expect {
+    "Choose the first display" {
+        send "1\r"
+        exp_continue
+    }
+    "Select display:" {
+        send "1\r"
+        exp_continue
+    }
+    "Choose display:" {
+        send "1\r"
+        exp_continue
+    }
+    "Display number:" {
+        send "1\r"
+        exp_continue
+    }
+    timeout {
+        # Continue if no prompt appears
+    }
+}
+interact
+EOL
+chmod +x /usr/local/bin/auto-select-display
+
+# Modify XRDP session to use expect script
+cat > /etc/xrdp/startwm.sh << EOL
+#!/bin/bash
+/usr/local/bin/auto-select-display /usr/local/bin/start-xrdp-session
+EOL
 chmod +x /etc/xrdp/startwm.sh
 
 # Create display lock directory
