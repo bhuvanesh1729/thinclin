@@ -99,16 +99,72 @@ echo "Installing LocalTunnel..."
 npm cache clean -f
 npm install -g localtunnel --no-audit --force
 
-# Configure XRDP to use custom port and XFCE
+# Configure display managers for coexistence
+echo "Configuring display managers..."
+
+# Configure LightDM
+if [ -f /etc/init.d/lightdm ]; then
+    echo "Configuring LightDM..."
+    # Backup original init script
+    cp /etc/init.d/lightdm /etc/init.d/lightdm.backup
+    
+    # Modify LightDM init script to disable default display manager check
+    sed -i '/^PIDFILE/a DISPLAY=:0' /etc/init.d/lightdm
+    sed -i 's/start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON/start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- -d $DISPLAY/' /etc/init.d/lightdm
+    
+    # Configure LightDM to use specific display
+    cat > /etc/lightdm/lightdm.conf.d/70-thinclin.conf << EOL
+[LightDM]
+minimum-display-number=0
+maximum-display-number=0
+EOL
+fi
+
+# Configure XRDP
 echo "Configuring XRDP..."
 echo xfce4-session > ~/.xsession
 
-# Configure XRDP to use port 1431
-sed -i 's/port=3389/port=1431/g' /etc/xrdp/xrdp.ini
+# Configure XRDP to use port 1431 and specific display
+cat > /etc/xrdp/xrdp.ini << EOL
+[Globals]
+ini_version=1
+port=1431
+enable_token_verification=true
+max_bpp=32
+fork=true
+tcp_nodelay=true
+tcp_keepalive=true
+security_layer=negotiate
+crypt_level=high
+allow_channels=true
+max_idle_time=0
+channel_code=1
+
+[Xvnc]
+name=Xvnc
+lib=libvnc.so
+username=ask
+password=ask
+ip=127.0.0.1
+port=-1
+xserverbpp=24
+EOL
+
+# Create custom xrdp startup script
+cat > /usr/local/bin/start-xrdp-session << EOL
+#!/bin/bash
+# Start XRDP session with specific display
+export DISPLAY=:1
+exec xfce4-session
+EOL
+chmod +x /usr/local/bin/start-xrdp-session
+
+# Update XRDP session script
+echo "/usr/local/bin/start-xrdp-session" > ~/.xsession
 
 # Restart XRDP service
 echo "Restarting XRDP service..."
-service xrdp restart
+systemctl restart xrdp
 
 # Configure firewall
 echo "Configuring firewall..."
